@@ -1804,6 +1804,27 @@ ciu_out:
 	return ret;
 }
 
+//#ifdef CONFIG_MMC_PASSWORDS
+static int dw_mci_sd_lock_reset(struct mmc_host *mmc)
+{
+	struct dw_mci_slot *slot = mmc_priv(mmc);
+	struct dw_mci *host = slot->host;
+	const struct dw_mci_drv_data *drv_data = slot->host->drv_data;
+	u32 present = 0;
+
+	pm_runtime_get_sync(mmc_dev(mmc));
+	present = dw_mci_get_cd(mmc);
+	if (present == 1) {
+		 if (drv_data && drv_data->work_fail_reset)
+			drv_data->work_fail_reset(host);
+	}
+	pm_runtime_mark_last_busy(mmc_dev(mmc));
+	pm_runtime_put_autosuspend(mmc_dev(mmc));
+
+	return 0;
+}
+//#endif
+
 static const struct mmc_host_ops dw_mci_ops = {
 	.request		= dw_mci_request,
 	.pre_req		= dw_mci_pre_req,
@@ -2931,6 +2952,7 @@ static int dw_mci_init_slot(struct dw_mci *host)
 	host->slot = slot;
 
 	mmc->ops = &dw_mci_ops;
+        mmc->ops->android_kabi_reserved1 = (u64)&dw_mci_sd_lock_reset;
 
 	/*if there are external regulators, get them*/
 	ret = mmc_regulator_get_supply(mmc);

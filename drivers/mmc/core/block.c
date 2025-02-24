@@ -1035,6 +1035,15 @@ static int mmc_blk_reset(struct mmc_blk_data *md, struct mmc_host *host,
 		return -EEXIST;
 
 	md->reset_done |= type;
+#ifdef CONFIG_MMC_PASSWORDS
+        mmc_sd_lock *sdlock = (mmc_sd_lock *)host->android_kabi_reserved1;
+	/*if sd is unlock , set auto unlock flag , so system resume auto unlock sd card */
+	if(mmc_card_sd(host->card) && (!mmc_card_locked(host->card))) {
+		pr_err("%s: [SDLOCK] sdcard is unlocked on blk_reset and set auto_unlock = true. \n", mmc_hostname(host));
+		sdlock->auto_unlock = true;
+	}
+	host->card->state &= ~(MMC_STATE_LOCKED | MMC_STATE_ENCRYPT);
+#endif
 	err = mmc_hw_reset(host->card);
 	/*
 	 * A successful reset will leave the card in the main partition, but

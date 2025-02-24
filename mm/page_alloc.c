@@ -342,7 +342,13 @@ const char * const migratetype_names[MIGRATE_TYPES] = {
 int min_free_kbytes = 1024;
 int user_min_free_kbytes = -1;
 static int watermark_boost_factor __read_mostly = 15000;
-static int watermark_scale_factor = 10;
+static int watermark_scale_factor = 25;
+/*
+ * Extra memory for the system to try freeing. Used to temporarily
+ * free memory, to make space for new workloads. Anyone can allocate
+ * down to the min watermarks controlled by min_free_kbytes above.
+ */
+int extra_free_kbytes = 0;
 
 /* virt_zone is the "real" zone pages in virtual zones are taken from */
 int virt_zone;
@@ -5921,9 +5927,11 @@ static void setup_per_zone_lowmem_reserve(void)
 static void __setup_per_zone_wmarks(void)
 {
 	unsigned long pages_min = min_free_kbytes >> (PAGE_SHIFT - 10);
+        unsigned long pages_low = extra_free_kbytes >> (PAGE_SHIFT - 10);
 	unsigned long lowmem_pages = 0;
 	struct zone *zone;
 	unsigned long flags;
+        unsigned long vm_total_pages = nr_free_zone_pages(gfp_zone(GFP_HIGHUSER_MOVABLE));
 
 	/* Calculate total number of pages below ZONE_HIGHMEM */
 	for_each_zone(zone) {
@@ -5932,11 +5940,13 @@ static void __setup_per_zone_wmarks(void)
 	}
 
 	for_each_zone(zone) {
-		u64 tmp;
+		u64 tmp,low;
 
 		spin_lock_irqsave(&zone->lock, flags);
 		tmp = (u64)pages_min * zone_managed_pages(zone);
 		do_div(tmp, lowmem_pages);
+                low = (u64)pages_low * zone_managed_pages(zone);
+		do_div(low, vm_total_pages);
 		if (zone_idx(zone) > ZONE_NORMAL) {
 			/*
 			 * __GFP_HIGH and PF_MEMALLOC allocations usually don't
@@ -5969,8 +5979,10 @@ static void __setup_per_zone_wmarks(void)
 			    mult_frac(zone_managed_pages(zone),
 				      watermark_scale_factor, 10000));
 
+                zone->_watermark[WMARK_MIN] = zone->_watermark[WMARK_MIN]*2;
+
 		zone->watermark_boost = 0;
-		zone->_watermark[WMARK_LOW]  = min_wmark_pages(zone) + tmp;
+		zone->_watermark[WMARK_LOW]  = min_wmark_pages(zone) + low + tmp;
 		zone->_watermark[WMARK_HIGH] = low_wmark_pages(zone) + tmp;
 		zone->_watermark[WMARK_PROMO] = high_wmark_pages(zone) + tmp;
 
@@ -6226,6 +6238,14 @@ static struct ctl_table page_alloc_sysctl_table[] = {
 		.maxlen		= sizeof(min_free_kbytes),
 		.mode		= 0644,
 		.proc_handler	= min_free_kbytes_sysctl_handler,
+		.extra1		= SYSCTL_ZERO,
+	},
+	{
+		.procname	= "extra_free_kbytes",
+		.data		= &extra_free_kbytes,
+		.maxlen		= sizeof(extra_free_kbytes),
+		.mode		= 0644,
+		.proc_handler   = min_free_kbytes_sysctl_handler,
 		.extra1		= SYSCTL_ZERO,
 	},
 	{
